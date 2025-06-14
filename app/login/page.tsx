@@ -1,76 +1,48 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase-client';
 
-export default function HomePage() {
+export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage('');
 
-    if (!email || !name || !password) {
-      setMessage('⚠️ Please enter your name, email, and password.');
-      return;
-    }
-
-    if (!email.endsWith('@iisertvm.ac.in')) {
-      setMessage('⚠️ Join in using your student mail id');
+    if (!email || !password) {
+      setMessage('⚠️ Please enter your email and password.');
       return;
     }
 
     setLoading(true);
 
-    // 🔐 Register the user using Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
-      options: {
-        data: { name },
-      },
     });
 
-    if (authError) {
-      setMessage(`❌ Sign up failed: ${authError.message}`);
-      setLoading(false);
-      return;
-    }
-
-    // 🧠 Insert into 'students' table
-    const { data: dbData, error: dbError } = await supabase
-      .from('students')
-      .insert([{ name, email, password }]);
-
-    if (dbError) {
-      setMessage(`⚠️ Auth success, but DB insert failed: ${dbError.message}`);
-    } else {
-      setMessage('✅ Sign-up successful! Please check your email for verification.');
-    }
-
     setLoading(false);
+
+    if (error) {
+      setMessage(`❌ Login failed: ${error.message}`);
+    } else {
+      setMessage('✅ Login successful! Redirecting...');
+      router.push('/dashboard');
+    }
   };
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-100 to-pink-200 flex items-center justify-center p-4">
       <div className="w-full max-w-md backdrop-blur-md bg-white/30 px-8 py-20 rounded-xl shadow-lg border border-white/40 text-gray-800">
         <h1 className="text-4xl font-semibold text-center mb-6 text-gray-800">Student Login</h1>
-  
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <input
-              type="text"
-              placeholder="Full Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full bg-transparent border-b-2 border-gray-400 focus:border-blue-600 outline-none py-2 placeholder-gray-600 text-gray-800"
-            />
-          </div>
-  
+
+        <form onSubmit={handleLogin} className="space-y-6">
           <div>
             <input
               type="email"
@@ -80,36 +52,36 @@ export default function HomePage() {
               className="w-full bg-transparent border-b-2 border-gray-400 focus:border-blue-600 outline-none py-2 placeholder-gray-600 text-gray-800"
             />
           </div>
-  
+
           <div>
             <input
               type="password"
-              placeholder="Set Password"
+              placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-transparent border-b-2 border-gray-400 focus:border-blue-600 outline-none py-2 placeholder-gray-600 text-gray-800"
             />
           </div>
-  
+
           <button
             type="submit"
             disabled={loading}
             className="w-full bg-indigo-500 text-white py-2 rounded-full font-medium hover:bg-indigo-700 transition disabled:opacity-50"
           >
-            {loading ? 'Signing up...' : 'Sign Up'}
+            {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
-  
+
         <p className="mt-4 text-sm text-center text-gray-700">
-          Registered already?{' '}
+          New here?{' '}
           <a
-            href="/login"
+            href="/"
             className="text-indigo-600 font-semibold hover:underline"
           >
-            Click here to login
+            Sign up instead
           </a>
         </p>
-  
+
         {message && (
           <p className="mt-4 text-sm text-center text-gray-700">{message}</p>
         )}
