@@ -105,7 +105,7 @@ export default function EventRegisterPage() {
 
     const { data, error } = await supabase
       .from('registrations')
-      .insert([{ event_id: eventId, name, email, description, token: nextToken }])
+      .insert([{ event_id: eventId, student_id: studentId, name, email, description, token: nextToken }])
       .select('token')
       .single();
 
@@ -151,7 +151,7 @@ export default function EventRegisterPage() {
           </div>
 
           <div className="w-full md:w-1/2 p-8 bg-white/10 backdrop-blur-lg text-white flex flex-col justify-center">
-            <h2 className="text-2xl font-bold mb-4 text-center">🎉 You're Registered!</h2>
+            <h2 className="text-2xl font-bold mb-4 text-center">🎉 You&aposre Registered!</h2>
             <p className="text-lg text-center">
               Your token number for <span className="text-yellow-300 font-semibold">{eventTitle}</span> is:
             </p>
