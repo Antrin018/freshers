@@ -74,7 +74,7 @@ export default function HomePage() {
       <div 
         className="absolute inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900"
         style={{
-          clipPath: 'polygon(0 0, 65% 0, 55% 100%, 0 100%)'
+          clipPath: 'polygon(0 0, 65% 0, 70% 100%, 0 100%)'
         }}
       >
         {/* Background artistic image */}
