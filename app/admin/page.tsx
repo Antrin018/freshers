@@ -10,10 +10,12 @@ interface Event {
   id: string;
   title: string;
   description: string;
-  image_url?: string;
-  Team_event: boolean;
+  date: string;
   time: string;
+  registration_open: boolean;
+  Team_event: boolean;
   team_size: number;
+  image_filename?: string
 }
 
 interface Participant {
@@ -36,26 +38,27 @@ export default function AdminDashboard() {
   const [newEvent, setNewEvent] = useState({
     title: '',
     description: '',
-    imageFile: null as File | null,
-    team_event: false,
+    date: '',
     time: '',
-    team_size: '',
+    imageFile: null as File | null,
+    registration_open: true,
+    Team_event: false,
+    team_size: '1',
   });
   const [editEvent, setEditEvent] = useState({
     title: '',
     description: '',
-    imageFile: null as File | null,
-    team_event: false,
+    date: '',
     time: '',
-    image_url: '',
-    team_size: '',
+    registration_open: true,
+    Team_event: false,
+    team_size: '1',
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [fireActive, setFireActive] = useState(false);
 
   useEffect(() => {
     fetchEvents();
-    // Initialize fire status from database or localStorage alternative
     initializeFireStatus();
   }, []);
 
@@ -66,7 +69,6 @@ export default function AdminDashboard() {
   };
 
   const initializeFireStatus = async () => {
-    // Try to get fire status from database
     const { data } = await supabase
       .from('admin_status')
       .select('fire_status')
@@ -80,36 +82,78 @@ export default function AdminDashboard() {
   const updateFireStatus = async (isActive: boolean) => {
     const status = isActive ? 200 : 400;
     
-    // Update in database
     const { error } = await supabase
       .from('admin_status')
       .upsert({ 
-        id: 1, // Use a fixed ID for singleton pattern
+        id: 1,
         fire_status: status,
         updated_at: new Date().toISOString()
       });
 
     if (error) {
       console.error('Failed to update fire status:', error);
-      // Fallback: broadcast to any listening components
       window.dispatchEvent(new CustomEvent('fireStatusChange', { 
         detail: { status } 
       }));
     }
   };
 
-  const uploadImage = async (file: File) => {
-    const ext = file.name.split('.').pop();
-    const filePath = `events/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from('event-images').upload(filePath, file);
-    if (error) {
-      alert('Image upload failed');
+  const uploadImageToSupabase = async (file: File, eventId: string): Promise<string | null> => {
+    try {
+      // Get file extension
+      const extension = file.name.split('.').pop();
+      const filename = `${eventId}.${extension}`;
+      const filePath = filename;
+  
+      console.log(`Attempting to upload file: ${filePath}`);
+  
+      // Check if file already exists and remove it first (for updates)
+      const { data: existingFiles } = await supabase.storage
+        .from('event-image')
+        .list('', { search: eventId });
+  
+      if (existingFiles && existingFiles.length > 0) {
+        // Remove existing files for this event
+        const filesToRemove = existingFiles
+          .filter(file => file.name.startsWith(eventId + '.'))
+          .map(file => file.name);
+        
+        if (filesToRemove.length > 0) {
+          console.log('Removing existing files:', filesToRemove);
+          const { error: removeError } = await supabase.storage
+            .from('event-image')
+            .remove(filesToRemove);
+          
+          if (removeError) {
+            console.warn('Warning: Could not remove existing file:', removeError);
+            // Continue with upload anyway
+          }
+        }
+      }
+  
+      // Upload new file
+      const { data, error } = await supabase.storage
+        .from('event-image')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true // This will overwrite if file exists
+        });
+  
+      if (error) {
+        console.error('Supabase upload error:', error);
+        alert(`Image upload failed: ${error.message}`);
+        return null;
+      }
+  
+      console.log('Upload successful:', data);
+      return filename;
+    } catch (error) {
+      console.error('Image upload error:', error);
+      alert('Image upload failed due to unexpected error');
       return null;
     }
-    const { data } = supabase.storage.from('event-images').getPublicUrl(filePath);
-    return data.publicUrl;
   };
-
+  
   const downloadParticipantsPDF = (event: Event) => {
     const doc = new jsPDF();
     const participants = participantsMap[event.id] || [];
@@ -117,12 +161,10 @@ export default function AdminDashboard() {
     const margin = 15;
     const contentWidth = pageWidth - (margin * 2);
   
-    // Header Section
     doc.setFontSize(20);
     doc.setFont('helvetica', 'bold');
     doc.text(event.title, margin, 25);
     
-    // Underline for title
     doc.setLineWidth(0.5);
     doc.line(margin, 28, margin + doc.getTextWidth(event.title), 28);
     
@@ -130,18 +172,15 @@ export default function AdminDashboard() {
     doc.setFont('helvetica', 'bold');
     doc.text('Participant List', margin, 38);
     
-    // Event Details Section
     doc.setFontSize(11);
     doc.setFont('helvetica', 'normal');
     doc.text('Event Time: ' + (event.time || 'Not specified'), margin, 50);
     
-    // Description with text wrapping
     const descriptionLines = doc.splitTextToSize('Description: ' + (event.description || 'No description'), contentWidth);
     doc.text(descriptionLines, margin, 58);
     
     let y = 58 + (descriptionLines.length * 5) + 10;
     
-    // Participants count
     doc.setFont('helvetica', 'bold');
     doc.text(`Total Participants: ${participants.length}`, margin, y);
     
@@ -151,67 +190,54 @@ export default function AdminDashboard() {
       doc.setFont('helvetica', 'italic');
       doc.text('No participants registered yet.', margin, y);
     } else {
-      // Table Header
       doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
       
-      // Header background
       doc.setFillColor(240, 240, 240);
       doc.rect(margin, y - 2, contentWidth, 8, 'F');
       
-      // Header text
       doc.text('Token', margin + 2, y + 4);
       doc.text('Name', margin + 25, y + 4);
       doc.text('Team Name', margin + 80, y + 4);
       doc.text('Description', margin + 125, y + 4);
       
-      // Header border
       doc.setLineWidth(0.3);
       doc.line(margin, y + 6, margin + contentWidth, y + 6);
       
       y += 12;
       
-      // Participant rows
       doc.setFont('helvetica', 'normal');
       participants.forEach((p, index) => {
-        // Calculate description lines first to determine row height
         const descText = p.description || '-';
-        const descriptionWidth = contentWidth - 125; // Available width for description column
+        const descriptionWidth = contentWidth - 125;
         const descLines = doc.splitTextToSize(descText, descriptionWidth);
-        const rowHeight = Math.max(8, descLines.length * 4 + 2); // Minimum 8, or height based on description lines
+        const rowHeight = Math.max(8, descLines.length * 4 + 2);
         
-        // Alternating row colors
         if (index % 2 === 0) {
           doc.setFillColor(250, 250, 250);
           doc.rect(margin, y - 2, contentWidth, rowHeight, 'F');
         }
         
-        // Token
         doc.setFont('helvetica', 'bold');
         doc.text('#' + p.token, margin + 2, y + 4);
         
-        // Name
         doc.setFont('helvetica', 'normal');
         const nameText = p.name || 'N/A';
-        const nameLines = doc.splitTextToSize(nameText, 50); // Allow wrapping for long names
+        const nameLines = doc.splitTextToSize(nameText, 50);
         doc.text(nameLines, margin + 25, y + 4);
         
-        // Team Name
         const teamText = p.Team_name || '-';
-        const teamLines = doc.splitTextToSize(teamText, 40); // Allow wrapping for long team names
+        const teamLines = doc.splitTextToSize(teamText, 40);
         doc.text(teamLines, margin + 80, y + 4);
         
-        // Description - Full text with wrapping
         doc.text(descLines, margin + 125, y + 4);
         
         y += rowHeight;
         
-        // Check if we need a new page
         if (y > 270) {
           doc.addPage();
           y = 25;
           
-          // Repeat header on new page
           doc.setFontSize(10);
           doc.setFont('helvetica', 'bold');
           doc.setFillColor(240, 240, 240);
@@ -227,10 +253,8 @@ export default function AdminDashboard() {
       });
     }
     
-    // Footer - Fixed to use correct method
-    const pageCount = doc.internal.pages.length - 1; // Subtract 1 because pages array includes a null first element
+    const pageCount = doc.internal.pages.length - 1;
     
-    // Add footer to each page
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
       doc.setFontSize(8);
@@ -244,32 +268,53 @@ export default function AdminDashboard() {
 
   const createEvent = async () => {
     if (!newEvent.title || !newEvent.description) return;
-    let imageUrl: string | null = null;
-    if (newEvent.imageFile) {
-      imageUrl = await uploadImage(newEvent.imageFile);
-      if (!imageUrl) return;
-    }
-    const { error } = await supabase.from('events').insert({
+    
+    // Step 1: Insert event details into the events table first
+    const { data, error } = await supabase.from('events').insert({
       title: newEvent.title,
       description: newEvent.description,
-      image_url: imageUrl,
-      Team_event: newEvent.team_event,
+      date: newEvent.date,
       time: newEvent.time,
-      team_size: newEvent.team_event ? parseInt(newEvent.team_size) || 1 : 1,
-    });
-    if (error) alert('Failed to create event');
-    else {
-      setCreating(false);
-      setNewEvent({
-        title: '',
-        description: '',
-        imageFile: null,
-        team_event: false,
-        time: '',
-        team_size: '',
-      });
-      fetchEvents();
+      registration_open: newEvent.registration_open,
+      Team_event: newEvent.Team_event,
+      team_size: newEvent.Team_event ? parseInt(newEvent.team_size) || 1 : 1,
+    }).select('id').single();
+    
+    if (error) {
+      console.error('Database insert error:', error);
+      alert('Failed to create event');
+      return;
     }
+
+    // Step 2: Get the event ID from the inserted record
+    const eventId = data.id;
+    console.log('Created event with ID:', eventId);
+    
+    // Step 3: Upload image with event ID as filename (if image provided)
+    if (newEvent.imageFile) {
+      const imageFilename = await uploadImageToSupabase(newEvent.imageFile, eventId);
+      if (!imageFilename) {
+        // Image upload failed, but event was created successfully
+        alert('Event created successfully, but image upload failed');
+      } else {
+        console.log('Image uploaded as:', imageFilename);
+      }
+    }
+    
+    // Reset form and refresh events list
+    setCreating(false);
+    setNewEvent({
+      title: '',
+      description: '',
+      date: '',
+      time: '',
+      imageFile: null,
+      registration_open: true,
+      Team_event: false,
+      team_size: '1',
+    });
+    fetchEvents();
+    alert('Event created successfully!');
   };
 
   const startEditEvent = (event: Event) => {
@@ -277,60 +322,101 @@ export default function AdminDashboard() {
     setEditEvent({
       title: event.title,
       description: event.description,
-      imageFile: null,
-      team_event: event.Team_event,
+      date: event.date,
       time: event.time,
-      image_url: event.image_url || '',
+      registration_open: event.registration_open,
+      Team_event: event.Team_event,
       team_size: event.team_size ? event.team_size.toString() : '1',
     });
     setEditing(true);
   };
 
   const updateEvent = async () => {
-    if (!editEvent.title || !editEvent.description) return;
+    if (!editEvent.title || !editEvent.description || !editingEvent?.id) return;
     
-    let imageUrl = editEvent.image_url;
-    if (editEvent.imageFile) {
-      const newImageUrl = await uploadImage(editEvent.imageFile);
-      if (!newImageUrl) return;
-      imageUrl = newImageUrl;
-    }
+    // Simplified updateData without image handling
+    const updateData = {
+      title: editEvent.title,
+      description: editEvent.description,
+      date: editEvent.date,
+      time: editEvent.time,
+      registration_open: editEvent.registration_open,
+      Team_event: editEvent.Team_event,
+      team_size: editEvent.Team_event ? parseInt(editEvent.team_size) || 1 : 1,
+    };
+
+    console.log('Updating event with data:', updateData);
 
     const { error } = await supabase
       .from('events')
-      .update({
-        title: editEvent.title,
-        description: editEvent.description,
-        image_url: imageUrl,
-        Team_event: editEvent.team_event,
-        time: editEvent.time,
-        team_size: editEvent.team_event ? parseInt(editEvent.team_size) || 1 : 1,
-      })
-      .eq('id', editingEvent?.id);
+      .update(updateData)
+      .eq('id', editingEvent.id);
 
     if (error) {
+      console.error('Database update error:', error);
       alert('Failed to update event');
-    } else {
-      setEditing(false);
-      setEditingEvent(null);
-      setEditEvent({
-        title: '',
-        description: '',
-        imageFile: null,
-        team_event: false,
-        time: '',
-        image_url: '',
-        team_size: '',
-      });
-      fetchEvents();
-      
-      // Update selected events if the edited event is currently selected
-      setSelectedEvents(prev => prev.map(event => 
-        event.id === editingEvent?.id
-          ? { ...event, title: editEvent.title, description: editEvent.description, Team_event: editEvent.team_event, time: editEvent.time, image_url: imageUrl, team_size: parseInt(editEvent.team_size) || 1 }
-          : event
-      ));
+      return;
     }
+
+    // Success - clean up and refresh
+    alert('Event updated successfully!');
+    
+    setEditing(false);
+    setEditingEvent(null);
+    setEditEvent({
+      title: '',
+      description: '',
+      date: '',
+      time: '',
+      registration_open: true,
+      Team_event: false,
+      team_size: '1',
+    });
+    
+    // Refresh events list
+    fetchEvents();
+    
+    // Update selected events in state
+    setSelectedEvents(prev => prev.map(event => 
+      event.id === editingEvent.id
+        ? { 
+            ...event, 
+            title: editEvent.title, 
+            description: editEvent.description,
+            date: editEvent.date,
+            time: editEvent.time,
+            registration_open: editEvent.registration_open,
+            Team_event: editEvent.Team_event,
+            team_size: parseInt(editEvent.team_size) || 1,
+          }
+        : event
+    ));
+  };
+
+  const toggleRegistrationOpen = async (eventId: string, newValue: boolean) => {
+    const { error } = await supabase
+      .from('events')
+      .update({ registration_open: newValue })
+      .eq('id', eventId);
+    
+    if (error) {
+      alert('Failed to update registration status');
+      return;
+    }
+
+    // Update local state
+    setEvents((prev) => prev.map((event) => 
+      event.id === eventId 
+        ? { ...event, registration_open: newValue } 
+        : event
+    ));
+    setSelectedEvents((prev) => prev.map((event) => 
+      event.id === eventId 
+        ? { ...event, registration_open: newValue } 
+        : event
+    ));
+    
+    console.log(`Registration ${newValue ? 'opened' : 'closed'} for event ${eventId}`);
   };
 
   const toggleTeamEvent = async (eventId: string, newValue: boolean) => {
@@ -338,7 +424,7 @@ export default function AdminDashboard() {
       .from('events')
       .update({ 
         Team_event: newValue,
-        team_size: newValue ? 1 : 1 // Reset to default value when toggling
+        team_size: newValue ? 1 : 1
       })
       .eq('id', eventId);
     
@@ -347,7 +433,6 @@ export default function AdminDashboard() {
       return;
     }
 
-    // Clear the team size input for this event when toggling off
     if (!newValue) {
       setTeamSizeInput(prev => ({ ...prev, [eventId]: '' }));
     }
@@ -382,7 +467,6 @@ export default function AdminDashboard() {
     } else {
       alert(`Team size updated to ${size} for this event`);
       
-      // Update local state
       setEvents((prev) => prev.map((event) => 
         event.id === eventId 
           ? { ...event, team_size: size } 
@@ -394,7 +478,6 @@ export default function AdminDashboard() {
           : event
       ));
       
-      // Clear input after successful update
       setTeamSizeInput(prev => ({ ...prev, [eventId]: '' }));
     }
   };
@@ -441,7 +524,6 @@ export default function AdminDashboard() {
   };
 
   const handleEventContainerClick = (e: React.MouseEvent, event: Event) => {
-    // Check if the click was on interactive elements (buttons, switches, inputs)
     const target = e.target as HTMLElement;
     const interactiveElements = ['BUTTON', 'INPUT', 'LABEL'];
     const isInteractiveClick = interactiveElements.includes(target.tagName) || 
@@ -450,7 +532,6 @@ export default function AdminDashboard() {
                               target.closest('label') ||
                               target.getAttribute('role') === 'switch';
     
-    // Only toggle selection if it's not an interactive element
     if (!isInteractiveClick) {
       toggleEventSelection(event);
     }
@@ -462,7 +543,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-black text-white flex">
-      {/* Left Sidebar - 40% */}
       <div className="w-2/5 p-6 border-r border-gray-700 relative">
         <h1 className="text-3xl mb-4 font-bold text-yellow-400">Admin Event Manager</h1>
         <div className="relative mb-6">
@@ -496,6 +576,7 @@ export default function AdminDashboard() {
               <p className="text-sm text-gray-300 mb-3 text-center">{event.description}</p>
               
               <div className="flex items-center justify-between text-xs text-gray-400">
+                <span>Date: {event.date}</span>
                 <span>Time: {event.time}</span>
                 
                 <div className="flex items-center gap-3">
@@ -523,7 +604,19 @@ export default function AdminDashboard() {
                 </div>
               </div>
               
-              {/* Team Size Input - appears when team event is ON */}
+              {/* Registration Status Toggle */}
+              <div className="mt-3 p-3 rounded-lg border-2 border-blue-400 bg-blue-400/10" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <span className="text-blue-400 text-sm font-semibold">
+                    Registration: {event.registration_open ? 'Open' : 'Closed'}
+                  </span>
+                  <Switch
+                    enabled={event.registration_open}
+                    setEnabled={(val) => toggleRegistrationOpen(event.id, val)}
+                  />
+                </div>
+              </div>
+              
               {event.Team_event && (
                 <div className="mt-3 p-3 rounded-lg border-2 border-yellow-400 bg-yellow-400/10" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-2">
@@ -563,7 +656,6 @@ export default function AdminDashboard() {
           </button>
         </div>
 
-        {/* Fire Icon Button */}
         <button
           onClick={handleFireToggle}
           className={`fixed bottom-6 left-6 w-12 h-12 rounded-full backdrop-blur-md border border-white/20 flex items-center justify-center transition-all duration-300 hover:scale-110 ${
@@ -576,7 +668,6 @@ export default function AdminDashboard() {
         </button>
       </div>
 
-      {/* Right Panel - 60% */}
       <div className="w-3/5 p-6">
         {selectedEvents.length > 0 ? (
           <div className="space-y-6 max-h-screen overflow-y-auto">
@@ -648,7 +739,6 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* Create Event Modal */}
       {creating && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-white text-black p-6 rounded-xl w-96 space-y-4">
@@ -659,6 +749,12 @@ export default function AdminDashboard() {
               className="w-full border px-2 py-1 rounded"
               value={newEvent.title}
               onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
+            />
+            <input
+              type="date"
+              className="w-full border px-2 py-1 rounded"
+              value={newEvent.date}
+              onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })}
             />
             <input
               type="time"
@@ -672,20 +768,42 @@ export default function AdminDashboard() {
               value={newEvent.description}
               onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
             />
-            <input
-              type="file"
-              accept="image/*"
-              className="w-full"
-              onChange={(e) => setNewEvent({ ...newEvent, imageFile: e.target.files?.[0] || null })}
-            />
+            
+            {/* Modified file input with warning message */}
+            <div className="space-y-2">
+              <input
+                type="file"
+                accept="image/*"
+                className="w-full"
+                onChange={(e) => setNewEvent({ ...newEvent, imageFile: e.target.files?.[0] || null })}
+              />
+              {newEvent.imageFile && (
+                <div className="p-3 bg-yellow-100 border border-yellow-400 rounded">
+                  <p className="text-sm text-yellow-800 font-medium">
+                    ⚠️ Warning: Once an image is added, it cannot be modified or deleted later.
+                  </p>
+                  <p className="text-xs text-yellow-700 mt-1">
+                    Selected: {newEvent.imageFile.name}
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <label>Registration Open</label>
+              <Switch
+                enabled={newEvent.registration_open}
+                setEnabled={(val) => setNewEvent({ ...newEvent, registration_open: val })}
+              />
+            </div>
             <div className="flex items-center gap-2">
               <label>Team Event</label>
               <Switch
-                enabled={newEvent.team_event}
-                setEnabled={(val) => setNewEvent({ ...newEvent, team_event: val })}
+                enabled={newEvent.Team_event}
+                setEnabled={(val) => setNewEvent({ ...newEvent, Team_event: val })}
               />
             </div>
-            {newEvent.team_event && (
+            {newEvent.Team_event && (
               <input
                 type="number"
                 placeholder="Enter team size"
@@ -713,7 +831,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Edit Event Modal */}
       {editing && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-white text-black p-6 rounded-xl w-96 space-y-4">
@@ -724,6 +841,12 @@ export default function AdminDashboard() {
               className="w-full border px-2 py-1 rounded"
               value={editEvent.title}
               onChange={(e) => setEditEvent({ ...editEvent, title: e.target.value })}
+            />
+            <input
+              type="date"
+              className="w-full border px-2 py-1 rounded"
+              value={editEvent.date}
+              onChange={(e) => setEditEvent({ ...editEvent, date: e.target.value })}
             />
             <input
               type="time"
@@ -737,25 +860,32 @@ export default function AdminDashboard() {
               value={editEvent.description}
               onChange={(e) => setEditEvent({ ...editEvent, description: e.target.value })}
             />
-            <div className="space-y-2">
-              <input
-                type="file"
-                accept="image/*"
-                className="w-full"
-                onChange={(e) => setEditEvent({ ...editEvent, imageFile: e.target.files?.[0] || null })}
+            
+            {/* Removed image upload option from edit modal */}
+            <div className="p-3 bg-gray-100 border border-gray-300 rounded">
+              <p className="text-sm text-gray-600">
+                📷 Image modifications are not available in edit mode.
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Images can only be added during event creation.
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <label>Registration Open</label>
+              <Switch
+                enabled={editEvent.registration_open}
+                setEnabled={(val) => setEditEvent({ ...editEvent, registration_open: val })}
               />
-              {editEvent.image_url && !editEvent.imageFile && (
-                <p className="text-sm text-gray-600">Current image will be kept if no new image is selected</p>
-              )}
             </div>
             <div className="flex items-center gap-2">
               <label>Team Event</label>
               <Switch
-                enabled={editEvent.team_event}
-                setEnabled={(val) => setEditEvent({ ...editEvent, team_event: val })}
+                enabled={editEvent.Team_event}
+                setEnabled={(val) => setEditEvent({ ...editEvent, Team_event: val })}
               />
             </div>
-            {editEvent.team_event && (
+            {editEvent.Team_event && (
               <input
                 type="number"
                 placeholder="Enter team size"

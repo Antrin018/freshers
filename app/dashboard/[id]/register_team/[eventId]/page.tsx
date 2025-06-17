@@ -21,6 +21,44 @@ export default function TeamEventRegisterPage() {
   const [teamSizeLimit, setTeamSizeLimit] = useState<number>(4); // Default max
   const [teamSizeError, setTeamSizeError] = useState<string | null>(null);
 
+  // Function to get image URL from Supabase storage
+  const getEventImageUrl = async (eventId: string): Promise<string | null> => {
+    try {
+      // List files in the bucket to find the file with the eventId
+      const { data: files, error } = await supabase.storage
+        .from('event-image')
+        .list('', {
+          limit: 100,
+          offset: 0
+        });
+
+      if (error) {
+        console.error('Error listing files:', error);
+        return null;
+      }
+
+      // Find the file that starts with the eventId
+      const eventFile = files?.find(file => 
+        file.name.startsWith(`${eventId}.`)
+      );
+
+      if (!eventFile) {
+        console.log('No image found for event:', eventId);
+        return null;
+      }
+
+      // Get the public URL for the file
+      const { data } = supabase.storage
+        .from('event-image')
+        .getPublicUrl(eventFile.name);
+
+      return data.publicUrl;
+    } catch (err) {
+      console.error('Error fetching event image:', err);
+      return null;
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -33,16 +71,22 @@ export default function TeamEventRegisterPage() {
 
         setEmail(studentData.email);
 
+        // Fetch event info (removed image_url from select)
         const { data: eventData } = await supabase
           .from('events')
-          .select('title, image_url, team_size')
+          .select('title, team_size')
           .eq('id', eventId)
           .single();
         if (!eventData) return;
 
         setEventTitle(eventData.title);
-        setEventImage(eventData.image_url);
         setTeamSizeLimit(eventData.team_size || 4);
+
+        // Fetch event image from storage
+        const imageUrl = await getEventImageUrl(eventId as string);
+        if (imageUrl) {
+          setEventImage(imageUrl);
+        }
 
         const { data: existing } = await supabase
           .from('registrations')

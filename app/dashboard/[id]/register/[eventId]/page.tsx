@@ -18,6 +18,44 @@ export default function EventRegisterPage() {
   const [existingToken, setExistingToken] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Function to get image URL from Supabase storage
+  const getEventImageUrl = async (eventId: string): Promise<string | null> => {
+    try {
+      // List files in the bucket to find the file with the eventId
+      const { data: files, error } = await supabase.storage
+        .from('event-image')
+        .list('', {
+          limit: 100,
+          offset: 0
+        });
+
+      if (error) {
+        console.error('Error listing files:', error);
+        return null;
+      }
+
+      // Find the file that starts with the eventId
+      const eventFile = files?.find(file => 
+        file.name.startsWith(`${eventId}.`)
+      );
+
+      if (!eventFile) {
+        console.log('No image found for event:', eventId);
+        return null;
+      }
+
+      // Get the public URL for the file
+      const { data } = supabase.storage
+        .from('event-image')
+        .getPublicUrl(eventFile.name);
+
+      return data.publicUrl;
+    } catch (err) {
+      console.error('Error fetching event image:', err);
+      return null;
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -36,10 +74,10 @@ export default function EventRegisterPage() {
         setName(studentData.name);
         setEmail(studentData.email);
 
-        // Fetch event info
+        // Fetch event info (removed image_url from select)
         const { data: eventData, error: eventError } = await supabase
           .from('events')
-          .select('title, image_url')
+          .select('title')
           .eq('id', eventId)
           .single();
 
@@ -49,7 +87,12 @@ export default function EventRegisterPage() {
         }
 
         setEventTitle(eventData.title);
-        setEventImage(eventData.image_url);
+
+        // Fetch event image from storage
+        const imageUrl = await getEventImageUrl(eventId as string);
+        if (imageUrl) {
+          setEventImage(imageUrl);
+        }
 
         // Check if already registered
         const { data: existing, error: existingError } = await supabase
@@ -151,7 +194,7 @@ export default function EventRegisterPage() {
           </div>
 
           <div className="w-full md:w-1/2 p-8 bg-white/10 backdrop-blur-lg text-white flex flex-col justify-center">
-            <h2 className="text-2xl font-bold mb-4 text-center">🎉 You&aposre Registered!</h2>
+            <h2 className="text-2xl font-bold mb-4 text-center">🎉 You&apos;re Registered!</h2>
             <p className="text-lg text-center">
               Your token number for <span className="text-yellow-300 font-semibold">{eventTitle}</span> is:
             </p>
