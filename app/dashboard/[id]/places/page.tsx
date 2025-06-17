@@ -87,7 +87,7 @@ export default function PlacesPage() {
             >
               {/* Pulsating Circle */}
               <div className="absolute -left-6 top-1/2 transform -translate-y-1/2">
-                <div className="w-3 h-3 bg-red-500 rounded-full pulse-circle"></div>
+                <div className="w-3 h-3 bg-orange-600 rounded-full pulse-circle"></div>
               </div>
               
               {/* Place Link */}
@@ -97,10 +97,17 @@ export default function PlacesPage() {
               >
                 {place.name}
               </Link>
+                 
+              
             </div>
           ))}
 
-          {/* Loading indicator - only show during first visit animation */}
+          <div className="absolute bottom-7 left-0 w-full text-center">
+                <p className="text-gray-300 text-sm">
+                  Click the place names to visit theit info page. On the info page, click the pulsating description box for more images.
+                </p>
+              </div>
+
           {!hasAnimated && (
             <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2">
               <div className="bg-black/60 backdrop-blur-sm rounded-full px-6 py-2 text-white text-sm">
