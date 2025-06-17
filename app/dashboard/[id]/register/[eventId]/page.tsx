@@ -17,6 +17,7 @@ export default function EventRegisterPage() {
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const [existingToken, setExistingToken] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   
   // New states for audio/video functionality
   const [audioRequired, setAudioRequired] = useState(false);
@@ -218,15 +219,18 @@ export default function EventRegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setUploadError('');
+    setSubmitting(true);
 
     // Check if required files are provided
     if (audioRequired && !audioFile) {
       setUploadError('Audio file is required for this event');
+      setSubmitting(false);
       return;
     }
 
     if (videoRequired && !videoFile) {
       setUploadError('Video file is required for this event');
+      setSubmitting(false);
       return;
     }
 
@@ -240,12 +244,14 @@ export default function EventRegisterPage() {
     if (existing) {
       setAlreadyRegistered(true);
       setExistingToken(existing.token);
+      setSubmitting(false);
       return;
     }
 
     // Upload media files first
     const uploadSuccess = await uploadMediaFiles();
     if (!uploadSuccess) {
+      setSubmitting(false);
       return;
     }
 
@@ -258,6 +264,7 @@ export default function EventRegisterPage() {
 
     if (maxTokenError) {
       alert('Error fetching token count.');
+      setSubmitting(false);
       return;
     }
 
@@ -271,10 +278,12 @@ export default function EventRegisterPage() {
 
     if (error) {
       alert('Something went wrong. Try again.');
+      setSubmitting(false);
       return;
     }
 
     setToken(data.token);
+    setSubmitting(false);
   };
 
   const inputStyle =
@@ -288,6 +297,15 @@ export default function EventRegisterPage() {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-black text-white">
         <div className="text-xl animate-pulse">Loading event info...</div>
+      </div>
+    );
+  }
+
+  // Show submitting loader
+  if (submitting) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-black text-white">
+        <div className="text-xl animate-pulse">Generating token....</div>
       </div>
     );
   }
@@ -364,7 +382,7 @@ export default function EventRegisterPage() {
           {/* File size notice */}
           {(audioRequired || videoRequired) && (
             <p className="text-sm text-yellow-300 mb-4 text-center">
-              Maximum file size allowed: 50MB. Warning: files once uploaded cannot be edited or deleted!!
+              Maximum file size allowed: 50MB
             </p>
           )}
 

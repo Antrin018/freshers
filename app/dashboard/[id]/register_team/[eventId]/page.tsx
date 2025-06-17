@@ -18,6 +18,7 @@ export default function TeamEventRegisterPage() {
   const [alreadyRegistered, setAlreadyRegistered] = useState(false);
   const [existingToken, setExistingToken] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [teamSizeLimit, setTeamSizeLimit] = useState<number>(4); // Default max
   const [teamSizeError, setTeamSizeError] = useState<string | null>(null);
 
@@ -230,6 +231,7 @@ export default function TeamEventRegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setUploadError('');
+    setSubmitting(true);
 
     const validMembers = teamMembers
       .map((m) => m.trim())
@@ -237,22 +239,26 @@ export default function TeamEventRegisterPage() {
 
     if (validMembers.length < 2) {
       setTeamSizeError('Minimum 2 team members are required.');
+      setSubmitting(false);
       return;
     }
 
     if (validMembers.length > teamSizeLimit) {
       setTeamSizeError(`Maximum team size is ${teamSizeLimit}.`);
+      setSubmitting(false);
       return;
     }
 
     // Check if required files are provided
     if (audioRequired && !audioFile) {
       setUploadError('Audio file is required for this event');
+      setSubmitting(false);
       return;
     }
 
     if (videoRequired && !videoFile) {
       setUploadError('Video file is required for this event');
+      setSubmitting(false);
       return;
     }
 
@@ -268,6 +274,7 @@ export default function TeamEventRegisterPage() {
     if (existingEmail) {
       setAlreadyRegistered(true);
       setExistingToken(existingEmail.token);
+      setSubmitting(false);
       return;
     }
 
@@ -281,12 +288,14 @@ export default function TeamEventRegisterPage() {
     if (existingTeam) {
       setAlreadyRegistered(true);
       setExistingToken(existingTeam.token);
+      setSubmitting(false);
       return;
     }
 
     // Upload media files first
     const uploadSuccess = await uploadMediaFiles();
     if (!uploadSuccess) {
+      setSubmitting(false);
       return;
     }
 
@@ -315,10 +324,12 @@ export default function TeamEventRegisterPage() {
 
     if (error) {
       alert('Something went wrong. Try again.');
+      setSubmitting(false);
       return;
     }
 
     setToken(data.token);
+    setSubmitting(false);
   };
 
   const inputStyle =
@@ -331,6 +342,15 @@ export default function TeamEventRegisterPage() {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-black text-white">
         <div className="text-xl animate-pulse">Loading event info...</div>
+      </div>
+    );
+  }
+
+  // Show submitting loader
+  if (submitting) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-black text-white">
+        <div className="text-xl animate-pulse">Generating token....</div>
       </div>
     );
   }
