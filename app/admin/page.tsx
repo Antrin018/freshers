@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase-client';
 import Switch from '@/components/ui/switch';
-import { Plus, Pencil, Trash2, Search, Flame } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Flame, Download } from 'lucide-react';
 import jsPDF from 'jspdf';
 
 interface Event {
@@ -15,7 +15,9 @@ interface Event {
   registration_open: boolean;
   Team_event: boolean;
   team_size: number;
-  image_filename?: string
+  image_filename?: string;
+  audio: boolean;
+  video: boolean;
 }
 
 interface Participant {
@@ -25,6 +27,14 @@ interface Participant {
   Team_name?: string;
   description?: string;
   event_id: string;
+  student_id: string;
+}
+
+interface MediaFile {
+  name: string;
+  url: string;
+  type: 'audio' | 'video';
+  studentId: string;
 }
 
 export default function AdminDashboard() {
@@ -34,7 +44,9 @@ export default function AdminDashboard() {
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<Event[]>([]);
   const [participantsMap, setParticipantsMap] = useState<{ [key: string]: Participant[] }>({});
+  const [mediaFilesMap, setMediaFilesMap] = useState<{ [key: string]: MediaFile[] }>({});
   const [teamSizeInput, setTeamSizeInput] = useState<{ [key: string]: string }>({});
+  const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const [newEvent, setNewEvent] = useState({
     title: '',
     description: '',
@@ -44,6 +56,8 @@ export default function AdminDashboard() {
     registration_open: true,
     Team_event: false,
     team_size: '1',
+    audio: false,
+    video: false,
   });
   const [editEvent, setEditEvent] = useState({
     title: '',
@@ -53,6 +67,8 @@ export default function AdminDashboard() {
     registration_open: true,
     Team_event: false,
     team_size: '1',
+    audio: false,
+    video: false,
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [fireActive, setFireActive] = useState(false);
@@ -96,6 +112,119 @@ export default function AdminDashboard() {
         detail: { status } 
       }));
     }
+  };
+
+  // Function to fetch media files for an event
+  const fetchMediaFiles = async (eventId: string): Promise<MediaFile[]> => {
+    try {
+      const mediaFiles: MediaFile[] = [];
+
+      // Fetch audio files
+      const { data: audioFiles, error: audioError } = await supabase.storage
+        .from('event-image')
+        .list('audio', {
+          limit: 100,
+          offset: 0
+        });
+
+      if (!audioError && audioFiles) {
+        const eventAudioFiles = audioFiles.filter(file => 
+          file.name.startsWith(`${eventId}_`)
+        );
+
+        for (const file of eventAudioFiles) {
+          const { data } = supabase.storage
+            .from('event-image')
+            .getPublicUrl(`audio/${file.name}`);
+
+          // Extract student ID from filename: eventId_studentId.extension
+          const fileNameParts = file.name.split('_');
+          if (fileNameParts.length >= 2) {
+            const studentIdWithExt = fileNameParts.slice(1).join('_'); // Handle cases where filename might have underscores
+            const studentId = studentIdWithExt.split('.')[0];
+
+            mediaFiles.push({
+              name: file.name,
+              url: data.publicUrl,
+              type: 'audio',
+              studentId: studentId
+            });
+          }
+        }
+      }
+
+      // Fetch video files
+      const { data: videoFiles, error: videoError } = await supabase.storage
+        .from('event-image')
+        .list('video', {
+          limit: 100,
+          offset: 0
+        });
+
+      if (!videoError && videoFiles) {
+        const eventVideoFiles = videoFiles.filter(file => 
+          file.name.startsWith(`${eventId}_`)
+        );
+
+        for (const file of eventVideoFiles) {
+          const { data } = supabase.storage
+            .from('event-image')
+            .getPublicUrl(`video/${file.name}`);
+
+          // Extract student ID from filename: eventId_studentId.extension
+          const fileNameParts = file.name.split('_');
+          if (fileNameParts.length >= 2) {
+            const studentIdWithExt = fileNameParts.slice(1).join('_');
+            const studentId = studentIdWithExt.split('.')[0];
+
+            mediaFiles.push({
+              name: file.name,
+              url: data.publicUrl,
+              type: 'video',
+              studentId: studentId
+            });
+          }
+        }
+      }
+
+      return mediaFiles;
+    } catch (err) {
+      console.error('Error fetching media files:', err);
+      return [];
+    }
+  };
+
+  // Function to get media files for a specific participant
+  const getParticipantMediaFiles = (eventId: string, studentId: string): MediaFile[] => {
+    const eventMediaFiles = mediaFilesMap[eventId] || [];
+    return eventMediaFiles.filter(file => file.studentId === studentId);
+  };
+
+  // Audio control functions
+  const handleAudioPlay = (audioId: string) => {
+    if (playingAudio && playingAudio !== audioId) {
+      // Stop currently playing audio
+      const currentAudio = document.getElementById(playingAudio) as HTMLAudioElement;
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      }
+    }
+    setPlayingAudio(audioId);
+  };
+
+  const handleAudioPause = () => {
+    setPlayingAudio(null);
+  };
+
+  const downloadFile = (url: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const uploadImageToSupabase = async (file: File, eventId: string): Promise<string | null> => {
@@ -278,6 +407,8 @@ export default function AdminDashboard() {
       registration_open: newEvent.registration_open,
       Team_event: newEvent.Team_event,
       team_size: newEvent.Team_event ? parseInt(newEvent.team_size) || 1 : 1,
+      audio: newEvent.audio,
+      video: newEvent.video,
     }).select('id').single();
     
     if (error) {
@@ -312,6 +443,8 @@ export default function AdminDashboard() {
       registration_open: true,
       Team_event: false,
       team_size: '1',
+      audio: false,
+      video: false,
     });
     fetchEvents();
     alert('Event created successfully!');
@@ -327,6 +460,8 @@ export default function AdminDashboard() {
       registration_open: event.registration_open,
       Team_event: event.Team_event,
       team_size: event.team_size ? event.team_size.toString() : '1',
+      audio: event.audio || false,
+      video: event.video || false,
     });
     setEditing(true);
   };
@@ -334,7 +469,7 @@ export default function AdminDashboard() {
   const updateEvent = async () => {
     if (!editEvent.title || !editEvent.description || !editingEvent?.id) return;
     
-    // Simplified updateData without image handling
+    // Updated updateData to include audio and video fields
     const updateData = {
       title: editEvent.title,
       description: editEvent.description,
@@ -343,6 +478,8 @@ export default function AdminDashboard() {
       registration_open: editEvent.registration_open,
       Team_event: editEvent.Team_event,
       team_size: editEvent.Team_event ? parseInt(editEvent.team_size) || 1 : 1,
+      audio: editEvent.audio,
+      video: editEvent.video,
     };
 
     console.log('Updating event with data:', updateData);
@@ -371,6 +508,8 @@ export default function AdminDashboard() {
       registration_open: true,
       Team_event: false,
       team_size: '1',
+      audio: false,
+      video: false,
     });
     
     // Refresh events list
@@ -388,6 +527,8 @@ export default function AdminDashboard() {
             registration_open: editEvent.registration_open,
             Team_event: editEvent.Team_event,
             team_size: parseInt(editEvent.team_size) || 1,
+            audio: editEvent.audio,
+            video: editEvent.video,
           }
         : event
     ));
@@ -510,6 +651,12 @@ export default function AdminDashboard() {
           setParticipantsMap(prev => ({ ...prev, [event.id]: data }));
         }
       }
+      
+      // Fetch media files for this event
+      if (!mediaFilesMap[event.id]) {
+        const mediaFiles = await fetchMediaFiles(event.id);
+        setMediaFilesMap(prev => ({ ...prev, [event.id]: mediaFiles }));
+      }
     }
   };
 
@@ -603,6 +750,20 @@ export default function AdminDashboard() {
                   />
                 </div>
               </div>
+              
+              {/* Audio/Video requirements display */}
+              {(event.audio || event.video) && (
+                <div className="mt-3 p-2 rounded-lg border border-purple-400 bg-purple-400/10">
+                  <div className="flex items-center gap-4 text-xs">
+                    {event.audio && (
+                      <span className="text-purple-400 font-semibold">🎤 Audio Required</span>
+                    )}
+                    {event.video && (
+                      <span className="text-purple-400 font-semibold">📹 Video Required</span>
+                    )}
+                  </div>
+                </div>
+              )}
               
               {/* Registration Status Toggle */}
               <div className="mt-3 p-3 rounded-lg border-2 border-blue-400 bg-blue-400/10" onClick={(e) => e.stopPropagation()}>
@@ -701,24 +862,111 @@ export default function AdminDashboard() {
                   ) : (
                     <div className="bg-white/5 rounded-lg p-4">
                       <div className="max-h-80 overflow-y-auto">
-                        <ul className="space-y-2">
-                          {participantsMap[event.id].map((p) => (
-                            <li
-                              key={p.id}
-                              className="flex justify-between items-center p-3 bg-white/10 rounded-lg border border-white/20"
-                            >
-                              <span className="font-mono text-yellow-400">#{p.token}</span>
-                              <div className="text-right">
-                                <div className="font-semibold">{p.name}</div>
-                                {p.Team_name && (
-                                  <div className="text-sm text-gray-400">{p.Team_name}</div>
+                        <ul className="space-y-4">
+                          {participantsMap[event.id].map((p) => {
+                            const participantMediaFiles = getParticipantMediaFiles(event.id, p.student_id);
+                            const audioFiles = participantMediaFiles.filter(f => f.type === 'audio');
+                            const videoFiles = participantMediaFiles.filter(f => f.type === 'video');
+                            
+                            return (
+                              <li
+                                key={p.id}
+                                className="p-4 bg-white/10 rounded-lg border border-white/20"
+                              >
+                                <div className="flex justify-between items-start mb-3">
+                                  <span className="font-mono text-yellow-400 text-lg">#{p.token}</span>
+                                  <div className="text-right">
+                                    <div className="font-semibold text-lg">{p.name}</div>
+                                    {p.Team_name && (
+                                      <div className="text-sm text-gray-400">{p.Team_name}</div>
+                                    )}
+                                    {p.description && (
+                                      <div className="text-xs text-gray-500 mt-1">{p.description}</div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Media Files Section */}
+                                {(audioFiles.length > 0 || videoFiles.length > 0) && (
+                                  <div className="mt-4 p-3 bg-white/5 rounded-lg border border-purple-400/30">
+                                    <h4 className="text-sm font-semibold text-purple-400 mb-3">📎 Uploaded Files</h4>
+                                    
+                                    {/* Audio Files */}
+                                    {audioFiles.length > 0 && (
+                                      <div className="mb-4">
+                                        <h5 className="text-xs text-purple-300 mb-2">🎤 Audio Files:</h5>
+                                        {audioFiles.map((audioFile, index) => {
+                                          const audioId = `audio-${event.id}-${p.student_id}-${index}`;
+                                          return (
+                                            <div key={audioFile.name} className="mb-3 p-2 bg-white/5 rounded border border-blue-400/30">
+                                              <div className="flex items-center justify-between mb-2">
+                                                <span className="text-xs text-blue-300 truncate max-w-48">{audioFile.name}</span>
+                                                <button
+                                                  onClick={() => downloadFile(audioFile.url, audioFile.name)}
+                                                  className="text-blue-400 hover:text-blue-300 p-1"
+                                                  title="Download Audio"
+                                                >
+                                                  <Download size={14} />
+                                                </button>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                <audio
+                                                  id={audioId}
+                                                  src={audioFile.url}
+                                                  className="w-full h-8"
+                                                  controls
+                                                  preload="metadata"
+                                                  onPlay={() => handleAudioPlay(audioId)}
+                                                  onPause={handleAudioPause}
+                                                  onEnded={handleAudioPause}
+                                                />
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+
+                                    {/* Video Files */}
+                                    {videoFiles.length > 0 && (
+                                      <div>
+                                        <h5 className="text-xs text-purple-300 mb-2">📹 Video Files:</h5>
+                                        {videoFiles.map((videoFile) => (
+                                          <div key={videoFile.name} className="mb-3 p-2 bg-white/5 rounded border border-green-400/30">
+                                            <div className="flex items-center justify-between mb-2">
+                                              <span className="text-xs text-green-300 truncate max-w-48">{videoFile.name}</span>
+                                              <button
+                                                onClick={() => downloadFile(videoFile.url, videoFile.name)}
+                                                className="text-green-400 hover:text-green-300 p-1"
+                                                title="Download Video"
+                                              >
+                                                <Download size={14} />
+                                              </button>
+                                            </div>
+                                            <video
+                                              src={videoFile.url}
+                                              className="w-full max-h-48 rounded border border-green-400/20"
+                                              controls
+                                              preload="metadata"
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
-                                {p.description && (
-                                  <div className="text-xs text-gray-500 mt-1">{p.description}</div>
+
+                                {/* No Media Files Message */}
+                                {(event.audio || event.video) && audioFiles.length === 0 && videoFiles.length === 0 && (
+                                  <div className="mt-4 p-3 bg-red-500/10 rounded-lg border border-red-400/30">
+                                    <p className="text-xs text-red-300">
+                                      ⚠️ No media files uploaded yet (Required: {event.audio ? 'Audio' : ''}{event.audio && event.video ? ' & ' : ''}{event.video ? 'Video' : ''})
+                                    </p>
+                                  </div>
                                 )}
-                              </div>
-                            </li>
-                          ))}
+                              </li>
+                            );
+                          })}
                         </ul>
                       </div>
                     </div>
@@ -813,6 +1061,25 @@ export default function AdminDashboard() {
                 min="1"
               />
             )}
+            
+            {/* Audio Required Toggle */}
+            <div className="flex items-center gap-2">
+              <label>Audio Required</label>
+              <Switch
+                enabled={newEvent.audio}
+                setEnabled={(val) => setNewEvent({ ...newEvent, audio: val })}
+              />
+            </div>
+            
+            {/* Video Required Toggle */}
+            <div className="flex items-center gap-2">
+              <label>Video Required</label>
+              <Switch
+                enabled={newEvent.video}
+                setEnabled={(val) => setNewEvent({ ...newEvent, video: val })}
+              />
+            </div>
+            
             <div className="flex justify-end gap-2">
               <button 
                 onClick={() => setCreating(false)} 
@@ -895,6 +1162,25 @@ export default function AdminDashboard() {
                 min="1"
               />
             )}
+            
+            {/* Audio Required Toggle */}
+            <div className="flex items-center gap-2">
+              <label>Audio Required</label>
+              <Switch
+                enabled={editEvent.audio}
+                setEnabled={(val) => setEditEvent({ ...editEvent, audio: val })}
+              />
+            </div>
+            
+            {/* Video Required Toggle */}
+            <div className="flex items-center gap-2">
+              <label>Video Required</label>
+              <Switch
+                enabled={editEvent.video}
+                setEnabled={(val) => setEditEvent({ ...editEvent, video: val })}
+              />
+            </div>
+            
             <div className="flex justify-end gap-2">
               <button 
                 onClick={() => {

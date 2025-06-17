@@ -326,7 +326,7 @@ export default function OverviewPage() {
                   {/* Motivational Message */}
                   {totalEvents > 0 && (
                     <div className="mt-8 bg-gradient-to-r from-green-500 to-teal-500 rounded-2xl p-6 text-white text-center">
-                      <h3 className="text-xl font-bold mb-2">🚀 You&aposre All Set!</h3>
+                      <h3 className="text-xl font-bold mb-2">🚀 You are all Set!</h3>
                       <p className="text-green-100">
                       Ready to showcase your talents in {totalEvents} amazing event{totalEvents !== 1 ? 's' : ''}!
                       </p>

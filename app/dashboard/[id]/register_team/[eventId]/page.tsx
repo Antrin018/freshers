@@ -21,6 +21,13 @@ export default function TeamEventRegisterPage() {
   const [teamSizeLimit, setTeamSizeLimit] = useState<number>(4); // Default max
   const [teamSizeError, setTeamSizeError] = useState<string | null>(null);
 
+  // New states for audio/video functionality
+  const [audioRequired, setAudioRequired] = useState(false);
+  const [videoRequired, setVideoRequired] = useState(false);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [uploadError, setUploadError] = useState('');
+
   // Function to get image URL from Supabase storage
   const getEventImageUrl = async (eventId: string): Promise<string | null> => {
     try {
@@ -59,6 +66,72 @@ export default function TeamEventRegisterPage() {
     }
   };
 
+  // Function to validate file size (50MB limit)
+  const validateFileSize = (file: File): boolean => {
+    const maxSizeInBytes = 50 * 1024 * 1024; // 50MB in bytes
+    return file.size <= maxSizeInBytes;
+  };
+
+  // Function to get file extension
+  const getFileExtension = (filename: string): string => {
+    return filename.split('.').pop() || '';
+  };
+
+  // Function to upload audio/video files
+  const uploadMediaFiles = async (): Promise<boolean> => {
+    try {
+      if (audioFile && audioRequired) {
+        if (!validateFileSize(audioFile)) {
+          setUploadError('Audio file size exceeds 50MB limit');
+          return false;
+        }
+
+        const audioExtension = getFileExtension(audioFile.name);
+        const audioFileName = `${eventId}_${studentId}.${audioExtension}`;
+        
+        const { error: audioError } = await supabase.storage
+          .from('event-image')
+          .upload(`audio/${audioFileName}`, audioFile, {
+            upsert: true
+          });
+
+        if (audioError) {
+          console.error('Error uploading audio:', audioError);
+          setUploadError('Failed to upload audio file');
+          return false;
+        }
+      }
+
+      if (videoFile && videoRequired) {
+        if (!validateFileSize(videoFile)) {
+          setUploadError('Video file size exceeds 50MB limit');
+          return false;
+        }
+
+        const videoExtension = getFileExtension(videoFile.name);
+        const videoFileName = `${eventId}_${studentId}.${videoExtension}`;
+        
+        const { error: videoError } = await supabase.storage
+          .from('event-image')
+          .upload(`video/${videoFileName}`, videoFile, {
+            upsert: true
+          });
+
+        if (videoError) {
+          console.error('Error uploading video:', videoError);
+          setUploadError('Failed to upload video file');
+          return false;
+        }
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Error uploading media files:', err);
+      setUploadError('Failed to upload media files');
+      return false;
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -71,16 +144,18 @@ export default function TeamEventRegisterPage() {
 
         setEmail(studentData.email);
 
-        // Fetch event info (removed image_url from select)
+        // Fetch event info including audio and video columns
         const { data: eventData } = await supabase
           .from('events')
-          .select('title, team_size')
+          .select('title, team_size, audio, video')
           .eq('id', eventId)
           .single();
         if (!eventData) return;
 
         setEventTitle(eventData.title);
         setTeamSizeLimit(eventData.team_size || 4);
+        setAudioRequired(eventData.audio || false);
+        setVideoRequired(eventData.video || false);
 
         // Fetch event image from storage
         const imageUrl = await getEventImageUrl(eventId as string);
@@ -128,8 +203,33 @@ export default function TeamEventRegisterPage() {
     }
   };
 
+  const handleAudioFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!validateFileSize(file)) {
+        setUploadError('Audio file size exceeds 50MB limit');
+        return;
+      }
+      setAudioFile(file);
+      setUploadError('');
+    }
+  };
+
+  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!validateFileSize(file)) {
+        setUploadError('Video file size exceeds 50MB limit');
+        return;
+      }
+      setVideoFile(file);
+      setUploadError('');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setUploadError('');
 
     const validMembers = teamMembers
       .map((m) => m.trim())
@@ -142,6 +242,17 @@ export default function TeamEventRegisterPage() {
 
     if (validMembers.length > teamSizeLimit) {
       setTeamSizeError(`Maximum team size is ${teamSizeLimit}.`);
+      return;
+    }
+
+    // Check if required files are provided
+    if (audioRequired && !audioFile) {
+      setUploadError('Audio file is required for this event');
+      return;
+    }
+
+    if (videoRequired && !videoFile) {
+      setUploadError('Video file is required for this event');
       return;
     }
 
@@ -170,6 +281,12 @@ export default function TeamEventRegisterPage() {
     if (existingTeam) {
       setAlreadyRegistered(true);
       setExistingToken(existingTeam.token);
+      return;
+    }
+
+    // Upload media files first
+    const uploadSuccess = await uploadMediaFiles();
+    if (!uploadSuccess) {
       return;
     }
 
@@ -206,6 +323,9 @@ export default function TeamEventRegisterPage() {
 
   const inputStyle =
     'bg-transparent border-b border-white placeholder-white focus:outline-none focus:border-yellow-300 py-2';
+
+  const fileInputStyle =
+    'bg-transparent border border-white rounded px-3 py-2 text-white file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:bg-yellow-400 file:text-black hover:file:bg-yellow-500';
 
   if (loading) {
     return (
@@ -267,6 +387,21 @@ export default function TeamEventRegisterPage() {
           <h1 className="text-2xl font-bold mb-4 text-center">
             Team Registration for: <span className="text-yellow-300">{eventTitle}</span>
           </h1>
+
+          {/* File size notice */}
+          {(audioRequired || videoRequired) && (
+            <p className="text-sm text-yellow-300 mb-4 text-center">
+              Maximum file size allowed: 50MB. Warning: files once uploaded cannot be edited or deleted!!
+            </p>
+          )}
+
+          {/* Upload error message */}
+          {uploadError && (
+            <div className="bg-red-500/20 border border-red-500 text-red-300 px-4 py-2 rounded mb-4">
+              {uploadError}
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="flex flex-col space-y-4">
             <input
               className={inputStyle}
@@ -284,7 +419,7 @@ export default function TeamEventRegisterPage() {
                   disabled={teamMembers.length >= teamSizeLimit}
                   className="text-yellow-300 text-sm"
                 >
-                  ➕ Add Member
+                  + Add Member
                 </button>
               </div>
               {teamMembers.map((member, index) => (
@@ -325,6 +460,45 @@ export default function TeamEventRegisterPage() {
               required
               rows={4}
             />
+
+            {/* Audio upload section */}
+            {audioRequired && (
+              <div className="space-y-2">
+                <label className="text-sm text-yellow-300">Audio Upload (Required)</label>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleAudioFileChange}
+                  className={fileInputStyle}
+                  required
+                />
+                {audioFile && (
+                  <p className="text-xs text-green-300">
+                    Selected: {audioFile.name} ({(audioFile.size / (1024 * 1024)).toFixed(2)} MB)
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Video upload section */}
+            {videoRequired && (
+              <div className="space-y-2">
+                <label className="text-sm text-yellow-300">Video Upload (Required)</label>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={handleVideoFileChange}
+                  className={fileInputStyle}
+                  required
+                />
+                {videoFile && (
+                  <p className="text-xs text-green-300">
+                    Selected: {videoFile.name} ({(videoFile.size / (1024 * 1024)).toFixed(2)} MB)
+                  </p>
+                )}
+              </div>
+            )}
+
             <button
               type="submit"
               className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 rounded"
